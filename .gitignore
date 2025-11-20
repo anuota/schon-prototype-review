@@ -1,4 +1,4 @@
-*.md
+
 ##################################
 # macOS system files
 ##################################
@@ -19,6 +19,7 @@ venv/
 .venv/
 env/
 .env/
+venv_python310
 
 # Python cache
 __pycache__/
@@ -27,6 +28,7 @@ __pycache__/
 *.pyd
 
 # Packaging
+archive/
 build/
 dist/
 *.egg-info/
@@ -37,9 +39,7 @@ pip-wheel-metadata/
 ##################################
 # Project output (you DON'T want these in Git)
 ##################################
-output_peaks/
-output_peaks1/
-output_plots/
+results/
 
 # If generated anywhere else
 *.hdf5
@@ -66,7 +66,10 @@ docker-compose.override.yml
 # Editors / IDEs
 ##################################
 .vscode/
+*.code-workspace
 .idea/
+*.md
+!README.md
 
 # Vim / Emacs / Jupyter
 *.swp
