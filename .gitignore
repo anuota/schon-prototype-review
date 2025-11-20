@@ -1,0 +1,89 @@
+##################################
+# macOS system files
+##################################
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+
+##################################
+# Python
+##################################
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+*.whl
+
+##################################
+# Project output (you DON'T want these in Git)
+##################################
+output_peaks/
+output_peaks1/
+output_plots/
+
+# If generated anywhere else
+*.hdf5
+*.pkl
+*.csv
+*.json
+*.png
+
+# Remove above if you want to track some specific ones
+
+##################################
+# Logs
+##################################
+*.log
+
+##################################
+# Docker (local artifacts)
+##################################
+docker-data/
+docker-volume/
+docker-compose.override.yml
+
+##################################
+# Editors / IDEs
+##################################
+.vscode/
+.idea/
+
+# Vim / Emacs / Jupyter
+*.swp
+*.swo
+*.ipynb_checkpoints/
+
+##################################
+# Future GUI / Frontend (node)
+##################################
+node_modules/
+npm-debug.log
+yarn-error.log
+dist/
+build/
+
+##################################
+# Secrets / environment
+##################################
+*.env
+*.env.*
+.envrc
