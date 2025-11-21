@@ -1,22 +1,25 @@
 from pathlib import Path
 
-from .read_bruker_fid_corems import (
+from schon.corems_pipeline.read_bruker_fid_corems import (
     load_mass_spectrum_from_d_folder,
     spectrum_to_peaks_dataframe,
 )
 
 PROJECT_ROOT = Path("/app")  # mounted path in Docker
 SCHON_DIR = PROJECT_ROOT / "SCHON"
+DATA_FOLDER = Path('/app/data')
+RESULTS_FOLDER = Path('/app/results/')
+
 # DATA_ROOT = PROJECT_ROOT / "Measurement_d-files" / "noncalibrated_d-files"
  # To analyze a single .d folder temporarily:
-DATA_ROOT = PROJECT_ROOT / "Measurement_d-files" / "noncalibrated_d-files" / "ESI_neg_G017736-0_100_200sc_000001.d"
+DATA_ROOT = DATA_FOLDER / "Measurement_d-files" / "noncalibrated_d-files" / "ESI_neg_G017736-0_100_200sc_000001.d"
 
 # To analyze all .d folders in calibrated_d-files later, switch to:
 # DATA_ROOT = PROJECT_ROOT / "Measurement_d-files" / "calibrated-d-files"
 # When running in Docker with "-v /Users/anya/Coding/CoreMS/tests/tests_data:/testdata",
 # the CoreMS test data will be available under /testdata inside the container.
 #DATA_ROOT = Path("/testdata/ftms")
-OUTPUT_PEAKS_DIR = SCHON_DIR / "output_peaks1"
+OUTPUT_PEAKS_DIR = RESULTS_FOLDER / "output_peaks1"
 
 OUTPUT_PEAKS_DIR.mkdir(parents=True, exist_ok=True)
 

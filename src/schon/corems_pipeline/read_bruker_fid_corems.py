@@ -71,7 +71,7 @@ def spectrum_to_peaks_dataframe(mass_spectrum_obj) -> pd.DataFrame:
     # Try to locate m/z, intensity, and S/N columns in the CoreMS dataframe
     mz_col = find_col(["observedExactMass_ion", "m/z", "mz"])
     intensity_col = find_col(
-        ["observedAbundance_ion", "Intensity", "abundance", "Abundance", "I"]
+        ["observedAbundance_ion", "Intensity", "abundance", "Abundance", "I","Peak Height"]
     )
     sn_col = find_col(
         ["signalNoise_ratio", "SNR", "S/N", "sn", "signal_to_noise"]

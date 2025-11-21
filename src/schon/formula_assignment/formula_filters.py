@@ -3,7 +3,7 @@ import pandas as pd
 from itertools import product
 from typing import Dict, Tuple, Iterable
 
-from formula_presets import get_preset, FormulaPreset
+from schon.formula_assignment.formula_presets import get_preset, FormulaPreset
 
 # -------- core filter function --------
 

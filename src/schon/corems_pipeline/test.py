@@ -1,5 +1,6 @@
 from corems.transient.input.brukerSolarix import ReadBrukerSolarix
 from matplotlib import pyplot
+from pathlib import Path
 
 # file_path= 'tests/tests_data/ftms/ESI_NEG_SRFA.d'
 # file_path= '/Users/anya/Coding/CoreMS/tests/tests_data/ftms/ESI_NEG_SRFA.d'
@@ -7,17 +8,23 @@ from matplotlib import pyplot
 # the CoreMS test data will be available under /testdata inside the container.
 
 # file_path = "/testdata/ftms/ESI_NEG_SRFA.d" # works_
-# file_path = '/app/Measurement_d-files/noncalibrated_d-files/ESI_neg_G015548-0_100_200sc_000001.d/' # doesnt work
+# file_path = '/app/data/Measurement_d-files/noncalibrated_d-files/ESI_neg_G015548-0_100_200sc_000001.d/' # doesnt work
 
-# file_path = '/app/Measurement_d-files/calibrated_d-files/ESI_neg_G015548-0_100_200sc_000001.d/' # doesnt work
-file_path = '/app/Measurement_d-files/calibrated_d-files/ESI_neg_G017736-0_100_200sc_000001.d' # works
-# file_path = '/app/Measurement_d-files/calibrated_d-files/Esi_neg_G000427-0_100_200scTol_000001.d'# doesnt work
-# file_path = '/app/Measurement_d-files/calibrated_d-files/Esi_neg_G000420-0_100_200scTol_000001.d' # doesnt work
-# file_path = '/app/Measurement_d-files/noncalibrated_d-files/ESI_neg_G015548-0_100_200sc_000001.d'# doesnt work
-# file_path = '/app/Measurement_d-files/noncalibrated_d-files/ESI_neg_G017736-0_100_200sc_000001.d' # works
-# file_path = '/app/Measurement_d-files/noncalibrated_d-files/Esi_neg_G000427-0_100_200scTol_000001.d'# doesnt work
-# file_path = '/app/Measurement_d-files/noncalibrated_d-files/Esi_neg_G000420-0_100_200sc_000001.d' # doesnt work
+
+DATA_FOLDER = Path('/app/data')
+RESULTS_FOLDER = Path('/app/results/')
+
+# file_path = DATA_FOLDER / "Measurement_d-files" / "calibrated_d-files" / "ESI_neg_G015548-0_100_200sc_000001.d/" # doesnt work
+
+file_path = DATA_FOLDER / "Measurement_d-files" / "calibrated_d-files" / "ESI_neg_G017736-0_100_200sc_000001.d" #works
+# file_path = DATA_FOLDER / "Measurement_d-files" / "calibrated_d-files" / "Esi_neg_G000427-0_100_200scTol_000001.d"# doesnt work
+# file_path = DATA_FOLDER / "Measurement_d-files" / "calibrated_d-files" / "Esi_neg_G000420-0_100_200scTol_000001.d" # doesnt work
+# file_path = DATA_FOLDER / "Measurement_d-files" / "calibrated_d-files" / "ESI_neg_G015548-0_100_200sc_000001.d"# doesnt work
+# file_path = DATA_FOLDER / "Measurement_d-files" / "calibrated_d-files" / "ESI_neg_G017736-0_100_200sc_000001.d" # works
+# file_path = DATA_FOLDER / "Measurement_d-files" / "calibrated_d-files" / "Esi_neg_G000427-0_100_200scTol_000001.d" # doesnt work
+# ffile_path = DATA_FOLDER / "Measurement_d-files" / "calibrated_d-files" / "Esi_neg_G000420-0_100_200sc_000001.d" # doesnt work
 # Instatiate the Bruker Solarix reader with the filepath
+file_path = str(file_path)  # if some library requires string
 bruker_reader = ReadBrukerSolarix(file_path)
 
 # Use the reader to instatiate a transient object
@@ -66,10 +73,10 @@ mass_spectrum_obj = bruker_transient_obj.get_mass_spectrum(plot_result=False, au
 
 # Save data
 ## to a csv file
-mass_spectrum_obj.to_csv("filename")
-mass_spectrum_obj.to_hdf("filename")
+mass_spectrum_obj.to_csv(str(RESULTS_FOLDER / "filename"))
+mass_spectrum_obj.to_hdf(str(RESULTS_FOLDER / "filename"))
 # to pandas Datarame pickle
-mass_spectrum_obj.to_pandas("filename")
+mass_spectrum_obj.to_pandas(str(RESULTS_FOLDER / "filename"))
 
 # Extract data as a pandas Dataframe
 df = mass_spectrum_obj.to_dataframe()

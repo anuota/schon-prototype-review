@@ -35,6 +35,8 @@ import sys
 import numpy as np
 import pandas as pd
 
+from schon.corems_pipeline.generate_peaks_from_fid import OUTPUT_PEAKS_DIR
+
 # We only import *data* from formula_filters, not the heavy
 # generate_formulas() helper, to keep calibration independent
 # of the global pre-generated library.
@@ -588,7 +590,7 @@ def main(input_path: Optional[str] = None, output_path: Optional[str] = None) ->
     """
 
     if input_path is None:
-        in_path = _default_input_path()
+        in_path = OUTPUT_PEAKS_DIR #_default_input_path()
     else:
         in_path = Path(input_path)
 

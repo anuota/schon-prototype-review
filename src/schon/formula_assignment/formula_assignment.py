@@ -5,12 +5,13 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from scipy.spatial import KDTree
 from multiprocessing import Pool, cpu_count
-from formula_filters import generate_formulas
+from schon.formula_assignment.formula_filters import generate_formulas
 
 # Home directory paths
-HOME_DIR = "/Users/anya/Coding/ML_FT-ICR-MS/SCHON/"
-PEAKS_DIR = os.path.join(HOME_DIR, "input_peaks")
-FORMULAS_DIR = os.path.join(HOME_DIR, "output_formulas")
+# HOME_DIR = "/Users/anya/Coding/ML_FT-ICR-MS/SCHON/"
+HOME_DIR = "/app/"
+PEAKS_DIR = os.path.join(HOME_DIR, "data/input_peaks")
+FORMULAS_DIR = os.path.join(HOME_DIR, "results/output_formulas")
 os.makedirs(FORMULAS_DIR, exist_ok=True)
 
 # Constants

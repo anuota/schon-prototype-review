@@ -25,5 +25,6 @@ RUN pip install --no-cache-dir \
 # Copy the entire project into /app
 COPY . .
 
+ENV PYTHONPATH=/app/src
 # By default, run generation of _peaks.csv from .d folders
 CMD ["python", "-m", "SCHON.corems_pipeline.generate_peaks_from_fid"]
