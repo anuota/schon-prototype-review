@@ -9,11 +9,7 @@ Steps
 
 2. Filter peaks by S/N >= threshold (default 20).
 
-3. (External step – not called here yet)
-   Run your formula assignment pipeline on the filtered peaks to produce a CSV with
-   columns like:
-       m/z, Intensity, isotopolog, Formula, Calculated Mass, C, H, N, O, S, *C, Na,
-       Mass Error (ppm), Alternative Formula, Alternative Mass Error (ppm)
+3. Run your formula assignment on the S/N-filtered peaks to produce a formulas CSV.
 
 4. From that formulas CSV, select robust internal calibrants:
    - isotopolog == 'Q'  (monoisotopic)
@@ -21,13 +17,9 @@ Steps
    - optionally CHO-only (N == S == Na == 0, *C == 0)
    - must belong to a homologous series (e.g. CH2) of length >= 2
 
-5. Fit a polynomial calibration m/z_true = f(m/z_observed).
+5. Fit a polynomial calibration.
 
-6. Apply this calibration to the *full* peak list and save:
-   `<sample>_calibrated_peaks.csv` and `<sample>_calibrated_peaks.pkl` in /app/results
-   with columns including:
-       Index, m/z, Calibrated m/z, Calculated m/z, Peak Height, Peak Area, Resolving Power,
-       S/N, Ion Charge, m/z Error (ppm), ...
+6. Apply calibration and save calibrated results.
 
 This module deliberately keeps things:
 - configurable (thresholds, file paths, polynomial order),
@@ -38,11 +30,17 @@ This module deliberately keeps things:
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+# Import CalibrationConfig from the config module
+from schon.calibration.calibration_config import CalibrationConfig
 from pathlib import Path
-from typing import Optional, Sequence, Tuple, List
+from typing import Optional, Sequence, Tuple, List, Union
 
 import numpy as np
 import pandas as pd
+
+# Directory for debug / test calibration outputs
+TEST_CALIB_DIR: Path = Path("/app/results/test_calibration")
 
 
 # ---------------------------------------------------------------------------
@@ -61,24 +59,27 @@ def ppm_error(theoretical: float, observed: float) -> float:
 from typing import List  # ensure List is available for type hints
 
 
+
 def detect_homologue_series(
     mz_values: np.ndarray,
     min_series_length: int = 2,
     step_mass: float = CH2_MASS,
     ppm_tolerance: float = 5.0,
-) -> np.ndarray:
-    """Return a boolean mask for peaks that belong to a CH2-like series.
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Return (mask, series_lengths) for peaks that belong to a CH2-like series.
+
+    mask[i] is True if peak i belongs to a homologous series of length
+    >= min_series_length. series_lengths[i] gives the size of the
+    connected component that peak i belongs to.
 
     The algorithm is intentionally simple: we build an undirected graph
     where two peaks are connected if their m/z difference corresponds to
-    an integer number of CH2 units within a ppm tolerance. Peaks that
-    belong to a connected component of size >= min_series_length are
-    marked as True.
+    an integer number of CH2 units within a ppm tolerance.
     """
 
     n = len(mz_values)
     if n == 0:
-        return np.zeros(0, dtype=bool)
+        return np.zeros(0, dtype=bool), np.zeros(0, dtype=int)
 
     order = np.argsort(mz_values)
     mz_sorted = mz_values[order]
@@ -106,6 +107,7 @@ def detect_homologue_series(
     # BFS / DFS to get connected components
     visited = np.zeros(n, dtype=bool)
     in_series = np.zeros(n, dtype=bool)
+    component_sizes = np.zeros(n, dtype=int)
 
     for i in range(n):
         if visited[i]:
@@ -122,14 +124,18 @@ def detect_homologue_series(
                 if not visited[nb]:
                     stack.append(nb)
 
-        if len(component) >= min_series_length:
+        size = len(component)
+        if size >= min_series_length:
             for k in component:
                 in_series[k] = True
+                component_sizes[k] = size
 
     # map back to original order
     mask = np.zeros(n, dtype=bool)
+    sizes = np.zeros(n, dtype=int)
     mask[order] = in_series
-    return mask
+    sizes[order] = component_sizes
+    return mask, sizes
 
 
 # ---------------------------------------------------------------------------
@@ -164,13 +170,6 @@ class FormulaColumns:
     alt_mass_error_ppm: str = "Alternative Mass Error (ppm)"
 
 
-@dataclass
-class CalibrationConfig:
-    """Config for the calibration process."""
-    sn_threshold: float = 20.0
-    poly_order: int = 2
-    only_CHO: bool = True              # use only CHO-type formulas as calibrants
-    ppm_tolerance_link: float = 0.5    # max |m/z - m/z_calibrant| (ppm) to link back
 
 
 # ---------------------------------------------------------------------------
@@ -228,15 +227,57 @@ def write_filtered_peaks_for_formula_assignment(
     return out_path
 
 
-# NOTE: This is intentionally left as a hook rather than a hard dependency
-# on your current `main.py`, because that file still contains hard-coded
-# paths and pre-generated formulas. Once you refactor `main.py` into a
-# clean function (e.g. `assign_formulas(input_csv: Path, output_csv: Path)`),
-# you can call it from here.
-#
-def run_formula_assignment(input_csv: Path, output_csv: Path) -> None:
+
+
+
+def run_formula_assignment(
+    peaks_for_formulas_df: pd.DataFrame,
+    sample_type: int | None = None,
+    ppm_tolerance: float | None = 0.05,
+    n_processes: Optional[int] = None,
+) -> pd.DataFrame:
+    """Run formula assignment for a (typically filtered) peak list in memory.
+
+    This is a thin wrapper around
+    ``schon.formula_assignment.formula_assignment.assign_formulas_df`` and is
+    intended to be used inside the calibration flow.
+
+    Parameters
+    ----------
+    peaks_for_formulas_df : pd.DataFrame
+        DataFrame with at least the columns ``m/z`` and ``Intensity``,
+        usually produced by ``write_filtered_peaks_for_formula_assignment``-like
+        logic (but kept in memory here).
+    sample_type : int, optional
+        Passed through to the underlying ``assign_formulas_df``. If ``None``,
+        the module default (``DEFAULT_SAMPLE_TYPE``) is used.
+    ppm_tolerance : float, optional
+        Mass-accuracy window for assignment. If ``None``, the module default
+        (``DEFAULT_PPM_TOLERANCE``) is used.
+    n_processes : int, optional
+        Number of worker processes. If ``None``, the module decides.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame of assigned formulas (same structure as the CSV that
+        used to be written by the CSV-based interface).
+    """
     from schon.formula_assignment import formula_assignment as formula_main
-    formula_main.assign_formulas(input_csv=input_csv, output_csv=output_csv)
+
+    kwargs: dict = {}
+    if sample_type is not None:
+        kwargs["sample_type"] = sample_type
+    if ppm_tolerance is not None:
+        kwargs["ppm_tolerance"] = ppm_tolerance
+    if n_processes is not None:
+        kwargs["n_processes"] = n_processes
+
+    # We assume formula_main exposes a DataFrame-based API.
+    return formula_main.assign_formulas_df(
+        peaks_for_formulas_df,
+        **kwargs,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +288,7 @@ def load_formulas(formulas_path: Path, cols: FormulaColumns = FormulaColumns()) 
     df = pd.read_csv(formulas_path)
     # We assume your formula assignment created the standard columns you showed.
     return df
+
 
 
 def select_calibrant_peaks(
@@ -262,6 +304,16 @@ def select_calibrant_peaks(
     - no alternative formula (unique assignment)
     - optionally CHO-only (no N, no S, no Na, no 13C)
     - must belong to a homologous series (e.g. CH2) of length >= 2
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with at least the columns:
+        - mz_obs        (observed m/z)
+        - mz_true       (theoretical m/z from the formula)
+        - formula       (molecular formula string)
+        - Intensity     (peak intensity as in formulas table)
+        - series_length (size of the homologous series component)
     """
     df = formulas_df.copy()
 
@@ -276,9 +328,19 @@ def select_calibrant_peaks(
             if col in df.columns:
                 mask &= df[col].fillna(0).astype(float).eq(0)
 
-    calibrants = df.loc[mask, [cols.mz, cols.calc_mass]].copy()
+    # keep observed m/z, theoretical m/z, formula, and intensity
+    calibrants = df.loc[
+        mask,
+        [cols.mz, cols.calc_mass, cols.formula, cols.intensity],
+    ].copy()
+
     calibrants.rename(
-        columns={cols.mz: "mz_obs", cols.calc_mass: "mz_true"},
+        columns={
+            cols.mz: "mz_obs",
+            cols.calc_mass: "mz_true",
+            cols.formula: "formula",
+            cols.intensity: "Intensity",
+        },
         inplace=True,
     )
 
@@ -288,16 +350,13 @@ def select_calibrant_peaks(
     if calibrants.empty:
         raise RuntimeError("No calibrant peaks selected – check your filters / formulas.")
 
-    # ------------------------------------------------------------------
     # Additional filter: keep only peaks that are part of a homologous
-    # series (e.g. CH2) of length >= 2. We use the theoretical masses
-    # (mz_true) for this check.
-    # ------------------------------------------------------------------
-    series_mask = detect_homologue_series(
+    # series (e.g. CH2) of length >= 2, using the theoretical masses.
+    series_mask, series_sizes = detect_homologue_series(
         calibrants["mz_true"].to_numpy(dtype=float),
-        min_series_length=2,
-        step_mass=CH2_MASS,
-        ppm_tolerance=5.0,
+        min_series_length=cfg.min_series_length,
+        step_mass=cfg.series_step_mass,
+        ppm_tolerance=cfg.series_ppm_tolerance,
     )
 
     calibrants = calibrants.loc[series_mask].copy()
@@ -305,6 +364,9 @@ def select_calibrant_peaks(
         raise RuntimeError(
             "No calibrant peaks remain after enforcing the homologous-series criterion."
         )
+
+    # store series length for each calibrant
+    calibrants["series_length"] = series_sizes[series_mask]
 
     return calibrants.sort_values("mz_obs").reset_index(drop=True)
 
@@ -473,57 +535,169 @@ def save_calibrated_results(
 # End-to-end runner
 # ---------------------------------------------------------------------------
 
+
 def run_calibration(
-    peaks_path: Path,
-    formulas_path: Path,
+    peaks: Union[Path, pd.DataFrame],
     cfg: CalibrationConfig = CalibrationConfig(),
     peak_cols: PeakColumns = PeakColumns(),
     formula_cols: FormulaColumns = FormulaColumns(),
     results_dir: Path = Path("/app/results"),
-) -> Tuple[Path, Path]:
+    sample_type: int | None = None,
+    ppm_tolerance: float | None = None,
+    n_processes: Optional[int] = None,
+    sample_name: Optional[str] = None,
+) :
+    """End-to-end calibration starting from peaks.
+
+    This function can be called either with:
+    - a pandas DataFrame of peaks (recommended for pipeline use), or
+    - a Path to a CoreMS peaks CSV (for convenience / CLI use).
     """
-    End-to-end calibration, starting from:
-        - peaks_path:  ..._peaks.csv
-        - formulas_path: formulas for (high S/N) peaks with columns described above.
+    # Determine peaks dataframe and sample name
+    if isinstance(peaks, Path):
+        # Backwards-compatible: load from CSV
+        peaks_df = load_peaks(peaks, cols=peak_cols)
+        if sample_name is None:
+            sample_name = peaks.stem.replace("_peaks", "")
+    else:
+        # Already a DataFrame
+        peaks_df = peaks
+        if sample_name is None:
+            sample_name = "sample"
 
-    Returns:
-        (csv_path, pkl_path) of calibrated output.
-    """
-    sample_name = peaks_path.stem.replace("_peaks", "")
+    # Safety check
+    if sample_name is None:
+        sample_name = "sample"
 
-    # 1) load peaks
-    peaks_df = load_peaks(peaks_path, cols=peak_cols)
-
-    # 2) filter by S/N (this is independent of formulas_path; you *should*
-    #    generate formulas based on these filtered peaks, but here we assume
-    #    formulas_path already corresponds to that subset).
+    # 1) Filter by S/N
     filtered_peaks_df = filter_peaks_by_snr(peaks_df, cfg, cols=peak_cols)
 
-    # 3) load formulas and select calibrants
-    formulas_df = load_formulas(formulas_path, cols=formula_cols)
+    # Ensure test-calibration directory exists
+    TEST_CALIB_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Save initial mass list (after S/N filtering) for inspection:
+    # m/z, Intensity, S/N
+    # initial_mass_list = pd.DataFrame(
+    #     {
+    #         "m/z": filtered_peaks_df[peak_cols.mz].to_numpy(dtype=float),
+    #         "Intensity": filtered_peaks_df[peak_cols.intensity].to_numpy(dtype=float),
+    #         "S/N": filtered_peaks_df[peak_cols.sn].to_numpy(dtype=float),
+    #     }
+    # )
+    # initial_mass_list_path = TEST_CALIB_DIR / f"{sample_name}_initial_mass_list.csv"
+    # # initial_mass_list.to_csv(initial_mass_list_path, index=False)
+
+    # 2) Prepare peaks DataFrame for formula assignment (in memory)
+    peaks_for_formulas_df = pd.DataFrame(
+        {
+            "m/z": filtered_peaks_df[peak_cols.mz],
+            "Intensity": filtered_peaks_df[peak_cols.intensity],
+        }
+    )
+
+    # 3) Run formula assignment on the filtered peaks (in memory)
+    formulas_df = run_formula_assignment(
+        peaks_for_formulas_df=peaks_for_formulas_df,
+        sample_type=sample_type,
+        ppm_tolerance=ppm_tolerance,
+        n_processes=n_processes,
+    )
+
+    # 4) Select calibrant peaks from the formulas
     calibrants = select_calibrant_peaks(formulas_df, cfg, cols=formula_cols)
 
-    # 4) fit polynomial
+    # 5) Fit polynomial calibration
     coeffs = fit_calibration_polynomial(calibrants, cfg)
 
-    # 5) apply calibration to full peaks (not just filtered ones)
+    # 6) Apply calibration to the full peak list
     calibrated_peaks = apply_calibration_to_peaks(peaks_df, coeffs, peak_cols=peak_cols)
 
-    # 6) build "full_ms" like dataframe and save
-    full_ms_like = build_full_ms_like_output(calibrated_peaks, calibrants, cfg, peak_cols=peak_cols)
-    return save_calibrated_results(full_ms_like, sample_name, results_dir=results_dir)
+    # 7) Build "full_ms"-style dataframe
+    full_ms_like = build_full_ms_like_output(
+        calibrated_peaks,
+        calibrants,
+        cfg,
+        peak_cols=peak_cols,
+    )
+
+    # ------------------------------------------------------------------
+    # Debug / test outputs in TEST_CALIB_DIR:
+    #
+    # (a) Selected calibrant mass list with:
+    #     initial m/z, calibrated m/z, ppm error, formula, intensity,
+    #     S/N, homologous series length
+    # (b) Final calibrated mass list with:
+    #     m/z, calibrated m/z, ppm error, intensity, S/N
+    # ------------------------------------------------------------------
+
+    # (a) Build calibrant debug table
+    poly = np.poly1d(coeffs)
+    calib_debug = calibrants.copy()
+    calib_debug["Calibrated m/z"] = poly(calib_debug["mz_obs"].to_numpy(dtype=float))
+    calib_debug["ppm_error"] = ppm_error(
+        calib_debug["mz_true"].to_numpy(dtype=float),
+        calib_debug["Calibrated m/z"].to_numpy(dtype=float),
+    )
+
+    # Add S/N by joining back to filtered_peaks_df on observed m/z
+    sn_map = filtered_peaks_df[[peak_cols.mz, peak_cols.sn]].rename(
+        columns={
+            peak_cols.mz: "mz_obs",
+            peak_cols.sn: "S/N",
+        }
+    )
+    calib_debug = calib_debug.merge(sn_map, on="mz_obs", how="left")
+
+    calibrant_mass_list = calib_debug[
+        ["mz_obs", "Calibrated m/z", "ppm_error", "formula", "Intensity", "S/N", "series_length"]
+    ].rename(columns={"mz_obs": "m/z"})
+
+    calibrant_mass_list_path = TEST_CALIB_DIR / f"{sample_name}_calibrants_mass_list.csv"
+    calibrant_mass_list.to_csv(calibrant_mass_list_path, index=False)
+
+    # (b) Final calibrated mass list
+    final_mass_list = pd.DataFrame(
+        {
+            "m/z": full_ms_like["m/z"].to_numpy(dtype=float),
+            "Calibrated m/z": full_ms_like["Calibrated m/z"].to_numpy(dtype=float),
+            "m/z Error (ppm)": full_ms_like["m/z Error (ppm)"].to_numpy(dtype=float),
+            "Intensity": full_ms_like["Peak Height"].to_numpy(dtype=float),
+            "S/N": full_ms_like["S/N"].to_numpy(dtype=float),
+        }
+    )
+    final_mass_list_path = TEST_CALIB_DIR / f"{sample_name}_final_calibrated_mass_list.csv"
+    final_mass_list.to_csv(final_mass_list_path, index=False)
+
+    # Optionally annotate the full output with the sample_type used for formula presets
+    if sample_type is not None:
+        full_ms_like["sample_type"] = sample_type
+
+    # Save full calibrated results (CSV + PKL) for downstream GUI use
+    save_calibrated_results(full_ms_like, sample_name, results_dir=results_dir)
+    print(f"Calibrated peaks saved into:\n  CSV and PKL: {results_dir}\n  ")
+
+    # Collect debug info that higher-level code (or a GUI) may want to inspect
+    debug_info = {
+        "sample_name": sample_name,
+        "coeffs": coeffs,
+        "calibrants": calibrants,
+        "calibrant_mass_list": calibrant_mass_list,
+        "final_mass_list": final_mass_list,
+    }
+
+    # Main return value is the calibrated “full ms” style DataFrame;
+    # debug_info contains extra diagnostics for advanced use.
+    return full_ms_like, debug_info
 
 
 if __name__ == "__main__":
     # Example CLI entry point (adjust paths for your Docker mount)
-    default_peaks = Path("/app/data/output_peaks/ESI_neg_G017736-0_100_200sc_000001.d_peaks.csv")
-    default_formulas = Path("/app/data/output_formulas/ESI_neg_G017736-0_100_200sc_000001.d_formulas.csv")
+    default_peaks = Path("/app/results/csv_raw/ESI_neg_G017736-0_100_200sc_000001.d_peaks.csv")
 
     cfg = CalibrationConfig(sn_threshold=20.0, poly_order=2, only_CHO=True)
-
-    csv_out, pkl_out = run_calibration(
-        peaks_path=default_peaks,
-        formulas_path=default_formulas,
-        cfg=cfg,
-    )
-    print(f"Calibrated peaks saved to:\n  CSV: {csv_out}\n  PKL: {pkl_out}")
+    run_calibration(peaks=default_peaks, cfg=cfg)
+    # csv_out, pkl_out = run_calibration(
+    #     peaks=default_peaks,
+    #     cfg=cfg,
+    # )
+    
