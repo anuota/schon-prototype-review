@@ -15,7 +15,7 @@ DEFAULT_FORMULAS_DIR = DEFAULT_HOME_DIR / "results" / "output_formulas"
 DEFAULT_FORMULAS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Numeric defaults (can be overridden via init_formula_search)
-DEFAULT_PPM_TOLERANCE: float = 5.0
+DEFAULT_PPM_TOLERANCE: float = 3.0
 ISOTOPE_DIFF: float = 1.0033548378
 DEFAULT_SAMPLE_TYPE: int = 0  # e.g. 0: crude_oil / generic, etc.
 
@@ -357,7 +357,13 @@ def assign_formulas_df(
 
     # Reset index and create an explicit Index column
     df = df.reset_index(drop=True)
-    df.insert(0, "Index", df.index)
+    # maintain existing Index if present (e.g. from calibration)
+    if "Index" not in df.columns:
+        df = df.reset_index(drop=True)
+        df.insert(0, "Index", df.index)
+    else:
+        # reindex for safety but preserve the Index column
+        df = df.reset_index(drop=True)
 
     # Reorder columns to a CoreMS-like layout
     desired_order = [

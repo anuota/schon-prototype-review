@@ -233,7 +233,7 @@ def write_filtered_peaks_for_formula_assignment(
 def run_formula_assignment(
     peaks_for_formulas_df: pd.DataFrame,
     sample_type: int | None = None,
-    ppm_tolerance: float | None = 0.05,
+    ppm_tolerance: float | None = 2,
     n_processes: Optional[int] = None,
 ) -> pd.DataFrame:
     """Run formula assignment for a (typically filtered) peak list in memory.
@@ -442,6 +442,12 @@ def build_full_ms_like_output(
     out["Index"] = np.arange(len(df))
     out["m/z"] = df[peak_cols.mz]
     out["Calibrated m/z"] = df["Calibrated m/z"]
+
+    # PPM shift introduced by calibration (Calibrated vs original m/z)
+    out["Calibration Error (ppm)"] = ppm_error(
+        out["m/z"].to_numpy(dtype=float),
+        out["Calibrated m/z"].to_numpy(dtype=float),
+    )
 
     # Calculated m/z and error, to be filled only for calibrants
     out["Calculated m/z"] = np.nan

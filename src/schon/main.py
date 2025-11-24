@@ -71,26 +71,30 @@ def assign_formulas_to_calibrated(
     """
     Assign molecular formulas to calibrated peaks and save the result as CSV.
 
-    This uses the *calibrated* m/z and peak height to build a minimal
-    two-column DataFrame (`m/z`, `Intensity`) that is passed to
-    `run_formula_assignment`. The full formulas table is returned and also
-    written as:
+    This function preserves all columns from the calibrated DataFrame,
+    uses the calibrated m/z for formula matching, and keeps the original
+    (uncalibrated) m/z in a 'm/z_raw' column. The output is written as:
 
         <calibration_results_dir>/<sample_name>_calibrated_with_formulas.csv
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame containing all previous columns plus formula assignments.
     """
-    # Prepare calibrated peaks for formula assignment: use calibrated m/z + intensity
-    peaks_for_formulas_df = pd.DataFrame(
-        {
-            "m/z": calibrated_df["Calibrated m/z"],
-            "Intensity": calibrated_df["Peak Height"],
-        }
-    )
+    # Start from a full copy of the calibrated DataFrame
+    df_for_assignment = calibrated_df.copy()
+    # Preserve the original (uncalibrated) m/z
+    df_for_assignment["m/z_raw"] = df_for_assignment["m/z"]
+    # Overwrite "m/z" with the calibrated value for formula assignment
+    df_for_assignment["m/z"] = df_for_assignment["Calibrated m/z"]
+    # Ensure "Intensity" column exists (use "Peak Height" if needed)
+    if "Intensity" not in df_for_assignment.columns and "Peak Height" in df_for_assignment.columns:
+        df_for_assignment["Intensity"] = df_for_assignment["Peak Height"]
 
     # Use defaults for ppm_tolerance and n_processes unless configured otherwise.
-    # (CalibrationConfig does not carry a ppm_tolerance for formula assignment,
-    # so we simply let the formula module use its own default.)
     calibrated_formulas_df = run_formula_assignment(
-        peaks_for_formulas_df=peaks_for_formulas_df,
+        peaks_for_formulas_df=df_for_assignment,
         sample_type=cfg.sample_type,
         ppm_tolerance=None,
         n_processes=None,
