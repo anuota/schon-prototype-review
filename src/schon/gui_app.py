@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
-import matplotlib.pyplot as plt
 import streamlit as st
 
 from schon.sample_run import SampleRun, SampleRunConfig
@@ -22,6 +21,12 @@ try:
     from schon.formula_assignment import formula_presets_appi
 except ImportError:
     formula_presets_appi = None 
+
+from schon.plotting.plot import (
+    plot_spectrum_with_calibrants,
+    plot_raw_vs_calibrated,
+    plot_spectrum_with_assigned_formulas,
+)
 
 # Defaults consistent with your Docker layout
 DEFAULT_DATA_ROOT = Path("/app/data")
@@ -50,57 +55,6 @@ def _build_calib_cfg(
     return cfg
 
 
-def _spectrum_plot(df: pd.DataFrame, mz_col: str = "Calibrated m/z") -> plt.Figure:
-    """
-    Build a simple spectrum plot with all peaks in light grey and
-    peaks with assigned formulas highlighted in a different colour.
-    """
-    fig, ax = plt.subplots(figsize=(10, 4))
-
-    if df.empty:
-        ax.text(0.5, 0.5, "No data to plot", ha="center", va="center")
-        ax.set_axis_off()
-        return fig
-
-    # Use calibrated m/z by default; fall back to raw m/z if needed
-    if mz_col not in df.columns:
-        mz_col = "m/z"
-
-    # Intensity column: "Intensity" (from formula assignment) or "Peak Height"
-    if "Intensity" in df.columns:
-        y_col = "Intensity"
-    elif "Peak Height" in df.columns:
-        y_col = "Peak Height"
-    else:
-        # fallback: first numeric column after m/z
-        numeric_cols = df.select_dtypes("number").columns.tolist()
-        numeric_cols = [c for c in numeric_cols if c != mz_col]
-        y_col = numeric_cols[0] if numeric_cols else mz_col
-
-    mz = df[mz_col].astype(float)
-    intensity = df[y_col].astype(float)
-
-    # All peaks
-    ax.vlines(mz, 0, intensity, linewidth=0.8, alpha=0.3)
-
-    # Assigned peaks: where Formula is not NaN / empty
-    if "Formula" in df.columns:
-        mask_assigned = df["Formula"].astype(str).str.strip() != ""
-        mz_assigned = mz[mask_assigned]
-        int_assigned = intensity[mask_assigned]
-        ax.vlines(
-            mz_assigned,
-            0,
-            int_assigned,
-            linewidth=1.0,
-            alpha=0.9,
-        )
-
-    ax.set_xlabel(mz_col)
-    ax.set_ylabel(y_col)
-    ax.set_title("Spectrum (assigned peaks highlighted)")
-    ax.set_ylim(bottom=0)
-    return fig
 
 
 def main() -> None:
@@ -346,9 +300,16 @@ def main() -> None:
         st.markdown("---")
         run_button = st.button("Run SCHON pipeline")
 
-    # ================= Main layout: results & spectrum window =================
-    # Reserve two columns: left = spectrum, right = summary & tables
-    col_plot, col_info = st.columns([2, 1])
+    # --- Persist last successful run in session_state so UI updates (like plot view)
+    # --- do not require rerunning the whole pipeline ---
+    if "last_run" not in st.session_state:
+        st.session_state["last_run"] = None
+    if "last_input_path" not in st.session_state:
+        st.session_state["last_input_path"] = None
+    if "last_input_kind" not in st.session_state:
+        st.session_state["last_input_kind"] = None
+    if "last_sample_type_label" not in st.session_state:
+        st.session_state["last_sample_type_label"] = None
 
     if run_button:
         if input_path is None:
@@ -369,7 +330,7 @@ def main() -> None:
         try:
             run_cfg = SampleRunConfig(
                 input_kind=input_kind,
-                sample_type=sample_type_label,  # numeric index derived from label
+                sample_type=sample_type_label,
                 calib_cfg=calib_cfg,
                 formula_ppm_tolerance=formula_ppm_tolerance,
                 formula_n_processes=int(formula_n_proc),
@@ -453,84 +414,139 @@ def main() -> None:
                 st.error(f"Error while processing {this_path}:")
                 st.exception(e)
 
-        # If we processed at least one run, use the last one for the spectrum and summary
-        if last_run is None:
-            return
+        # After processing all paths, persist the last successful run in session state
+        if last_run is not None:
+            st.session_state["last_run"] = last_run
+            st.session_state["last_input_path"] = input_path
+            st.session_state["last_input_kind"] = input_kind
+            st.session_state["last_sample_type_label"] = sample_type_label
 
-        run = last_run
+    # ================= Rendering section (runs on every rerun) =================
+    run: Optional[SampleRun] = st.session_state.get("last_run")
+    if run is None:
+        # Nothing to show yet (pipeline has not been run successfully)
+        return
 
-        # ------------------ Left: spectrum window ------------------
-        with col_plot:
-            st.subheader("Spectrum")
+    current_df = run.current_df  # latest (with formulas if any)
 
-            current_df = run.current_df  # latest (with formulas if any)
+    # Guard against missing or empty data
+    if current_df is None or current_df.empty:
+        st.warning("No data available to plot yet.")
+        return
 
-            # Guard against missing or empty data
-            if current_df is None or current_df.empty:
-                st.warning("No data available to plot yet.")
-                return
+    # Decide which m/z column to use for zooming
+    if "Calibrated m/z" in current_df.columns:
+        mz_col = "Calibrated m/z"
+    elif "m/z" in current_df.columns:
+        mz_col = "m/z"
+    else:
+        st.warning("No m/z column found in current table.")
+        return
 
-            # Decide which m/z column to use
-            if "Calibrated m/z" in current_df.columns:
-                mz_col = "Calibrated m/z"
-            elif "m/z" in current_df.columns:
-                mz_col = "m/z"
-            else:
-                st.warning("No m/z column found in current table.")
-                return
+    # Drop NaNs before computing slider bounds
+    mz_series = pd.to_numeric(current_df[mz_col], errors="coerce").dropna()
+    if mz_series.empty:
+        st.warning("All m/z values are NaN or invalid; cannot plot spectrum.")
+        return
 
-            # Drop NaNs before computing slider bounds
-            mz_series = pd.to_numeric(current_df[mz_col], errors="coerce").dropna()
-            if mz_series.empty:
-                st.warning("All m/z values are NaN or invalid; cannot plot spectrum.")
-                return
+    mz_min = float(mz_series.min())
+    mz_max = float(mz_series.max())
 
-            mz_min = float(mz_series.min())
-            mz_max = float(mz_series.max())
+    # Reserve two columns: left = spectrum, right = summary & controls
+    col_plot, col_info = st.columns([2, 1])
 
-            # If range collapsed, just plot without slider
-            if mz_min >= mz_max:
-                df_zoom = current_df.copy()
-            else:
-                mz_range = st.slider(
-                    "m/z range",
-                    min_value=float(mz_min),
-                    max_value=float(mz_max),
-                    value=(float(mz_min), float(mz_max)),
-                )
+    # ------------------ Right: view selector & summary ------------------
+    with col_info:
+        st.subheader("Run summary")
+        last_input_path = st.session_state.get("last_input_path")
+        last_input_kind = st.session_state.get("last_input_kind")
+        last_sample_type_label = st.session_state.get("last_sample_type_label")
 
-                # Filter by selected m/z range
-                df_zoom = current_df[
-                    (current_df[mz_col] >= mz_range[0]) & (current_df[mz_col] <= mz_range[1])
-                ]
+        st.write(f"**Input file:** {last_input_path}")
+        st.write(f"**Input kind:** {last_input_kind}")
+        st.write(f"**Sample type:** {last_sample_type_label}")
+        st.write(
+            f"**Peaks (calibrated table):** "
+            f"{run.calibrated_df.shape if run.calibrated_df is not None else 'N/A'}"
+        )
 
-            fig = _spectrum_plot(df_zoom, mz_col=mz_col)
-            st.pyplot(fig, clear_figure=True)
+        # Plot view selector
+        view_type = st.radio(
+            "Plot view",
+            options=[
+                "Calibrants",
+                "Raw vs calibrated",
+                "Assigned formulas",
+            ],
+            index=0,
+            help="Choose which spectrum overlay to display on the left.",
+        )
 
-        # ------------------ Right: summary ------------------
-        with col_info:
-            st.subheader("Run summary")
-            st.write(f"**Input file:** {input_path}")
-            st.write(f"**Input kind:** {input_kind}")
-            st.write(f"**Sample type:** {sample_type_label}")
-            st.write(f"**Peaks (calibrated table):** {run.calibrated_df.shape if run.calibrated_df is not None else 'N/A'}")
+        if run.latest_formulas_df is not None:
+            df_form = run.latest_formulas_df
+            n_assigned = (
+                df_form["Formula"].notna().sum()
+                if "Formula" in df_form.columns
+                else 0
+            )
+            st.write(f"**Formula-assigned peaks:** {n_assigned}")
 
-            if run.latest_formulas_df is not None:
-                df_form = run.latest_formulas_df
-                n_assigned = df_form["Formula"].notna().sum() if "Formula" in df_form.columns else 0
-                st.write(f"**Formula-assigned peaks:** {n_assigned}")
+            with st.expander("Show first 200 rows of formula table"):
+                st.dataframe(df_form.head(200))
 
-                with st.expander("Show first 200 rows of formula table"):
-                    st.dataframe(df_form.head(200))
-
-            with st.expander("Calibration diagnostics", expanded=False):
-                if run.calibration_debug:
-                    st.json({
+        with st.expander("Calibration diagnostics", expanded=False):
+            if run.calibration_debug:
+                st.json(
+                    {
                         "sample_name": run.calibration_debug.get("sample_name"),
-                        "n_calibrants": len(run.calibration_debug.get("calibrants", [])),
-                    })
-                else:
-                    st.write("No calibration diagnostics available.")
+                        "n_calibrants": len(
+                            run.calibration_debug.get("calibrants", [])
+                        ),
+                    }
+                )
+            else:
+                st.write("No calibration diagnostics available.")
+
+    # ------------------ Left: spectrum window ------------------
+    with col_plot:
+        st.subheader("Spectrum")
+
+        # If range collapsed, just plot without slider
+        if mz_min >= mz_max:
+            df_zoom = current_df.copy()
+        else:
+            mz_range = st.slider(
+                "m/z range",
+                min_value=float(mz_min),
+                max_value=float(mz_max),
+                value=(float(mz_min), float(mz_max)),
+            )
+
+            # Filter by selected m/z range
+            df_zoom = current_df[
+                (current_df[mz_col] >= mz_range[0])
+                & (current_df[mz_col] <= mz_range[1])
+            ]
+        plots_dir = Path("/app/results/runs") / run.sample_name / "plots"
+        plots_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Delegate actual plotting to the plotting module
+        if view_type == "Calibrants":
+            fig = plot_spectrum_with_calibrants(df_zoom, output_path=plots_dir / "calibrants.png")
+        elif view_type == "Raw vs calibrated":
+            fig = plot_raw_vs_calibrated(df_zoom, output_path=plots_dir / "raw_vs_calibrated.png")
+        else:  # "Assigned formulas"
+            fig = plot_spectrum_with_assigned_formulas(df_zoom, output_path=plots_dir / "assigned_formulas.png")
+
+        st.pyplot(fig, clear_figure=True)
+
+    # ================= Output table preview (full width) =================
+    st.markdown("---")
+    st.subheader("Output table preview")
+    try:
+        st.dataframe(current_df.head(500), width='stretch')
+    except Exception:
+        st.dataframe(current_df, use_container_width=True)
 
 
 if __name__ == "__main__":
