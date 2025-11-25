@@ -52,8 +52,8 @@ class PipelineConfig:
 
     # VERY IMPORTANT: sample type controls which element presets / rules
     # are used during formula assignment inside calibration
-    # (e.g. 0 = CHO, 1 = CHNO, etc., whatever your formula_filters expects).
-    sample_type: Optional[int] = None
+    # (e.g. "CRUDE_OIL", "SEDIMENTARY_ROCK", "COAL", "NATURAL_WATER", "GENERIC_ESI_NEG", etc., whatever your formula_filters expects).
+    sample_type: Optional[str] = None
 
     # Whether to save the raw peak CSVs from CoreMS
     save_raw_peaks_csv: bool = True
@@ -99,6 +99,18 @@ def assign_formulas_to_calibrated(
         ppm_tolerance=None,
         n_processes=None,
     )
+
+    # Reduce to final desired columns
+    desired_cols = [
+        "Index", "Calibrated m/z", "Intensity", "S/N", "Ion Charge",
+        "Formula", "isotopolog", "Calculated Mass", "Mass Error (ppm)",
+        "C", "H", "N", "O", "S", "*C", "Na",
+        "Alternative Formula", "Alternative Mass Error (ppm)",
+        "Sample type", "m/z_raw", "Calibration Error (ppm)"
+    ]
+    # Keep only existing columns
+    keep_cols = [c for c in desired_cols if c in calibrated_formulas_df.columns]
+    calibrated_formulas_df = calibrated_formulas_df[keep_cols]
 
     out_path = cfg.calibration_results_dir / f"{sample_name}_calibrated_with_formulas.csv"
     cfg.calibration_results_dir.mkdir(parents=True, exist_ok=True)
@@ -400,10 +412,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--sample-type",
-        type=int,
+        type=str,
         help=(
-            "Integer code for sample type / formula presets "
-            "(used inside formula assignment during calibration)."
+            "Sample type / formula preset name "
+            "(e.g. CRUDE_OIL, SEDIMENTARY_ROCK, COAL, NATURAL_WATER, GENERIC_ESI_NEG)."
         ),
         default=None,
     )

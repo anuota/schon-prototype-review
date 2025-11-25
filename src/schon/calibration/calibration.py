@@ -232,8 +232,8 @@ def write_filtered_peaks_for_formula_assignment(
 
 def run_formula_assignment(
     peaks_for_formulas_df: pd.DataFrame,
-    sample_type: int | None = None,
-    ppm_tolerance: float | None = 2,
+    sample_type: str | None = None,
+    ppm_tolerance: float | None = None,
     n_processes: Optional[int] = None,
 ) -> pd.DataFrame:
     """Run formula assignment for a (typically filtered) peak list in memory.
@@ -248,9 +248,10 @@ def run_formula_assignment(
         DataFrame with at least the columns ``m/z`` and ``Intensity``,
         usually produced by ``write_filtered_peaks_for_formula_assignment``-like
         logic (but kept in memory here).
-    sample_type : int, optional
+    sample_type : str, optional
+        Name of the sample type preset (e.g. "crude_oil", "natural_water").
         Passed through to the underlying ``assign_formulas_df``. If ``None``,
-        the module default (``DEFAULT_SAMPLE_TYPE``) is used.
+        the module default preset is used.
     ppm_tolerance : float, optional
         Mass-accuracy window for assignment. If ``None``, the module default
         (``DEFAULT_PPM_TOLERANCE``) is used.
@@ -442,6 +443,8 @@ def build_full_ms_like_output(
     out["Index"] = np.arange(len(df))
     out["m/z"] = df[peak_cols.mz]
     out["Calibrated m/z"] = df["Calibrated m/z"]
+    # Preserve the original (uncalibrated) m/z explicitly for downstream logic
+    out["m/z_raw"] = out["m/z"]
 
     # PPM shift introduced by calibration (Calibrated vs original m/z)
     out["Calibration Error (ppm)"] = ppm_error(
@@ -464,6 +467,9 @@ def build_full_ms_like_output(
 
     # m/z error in ppm (only for calibrants)
     out["m/z Error (ppm)"] = np.nan
+
+    # Add a boolean column indicating whether each peak was used for calibration
+    out["Used For Calibration"] = False
 
     # placeholders for other columns expected in your GUI
     out["m/z Error Score"] = np.nan
@@ -510,8 +516,11 @@ def build_full_ms_like_output(
             out.loc[idx, "Calculated m/z"] * 1e6
         )
 
-        # And we can add formula information later if we want
-
+        # -------- Mark peaks used for calibration --------
+        # Here we mark peaks whose observed m/z matches a calibrant mz_obs.
+        calibrant_mz = set(calibrants["mz_obs"].astype(float).tolist())
+        # Use the raw observed m/z column ("m/z" in this full_ms table)
+        out["Used For Calibration"] = out["m/z"].astype(float).isin(calibrant_mz)
     return out
 
 
@@ -548,7 +557,7 @@ def run_calibration(
     peak_cols: PeakColumns = PeakColumns(),
     formula_cols: FormulaColumns = FormulaColumns(),
     results_dir: Path = Path("/app/results"),
-    sample_type: int | None = None,
+    sample_type: str | None = None,
     ppm_tolerance: float | None = None,
     n_processes: Optional[int] = None,
     sample_name: Optional[str] = None,
@@ -676,7 +685,8 @@ def run_calibration(
 
     # Optionally annotate the full output with the sample_type used for formula presets
     if sample_type is not None:
-        full_ms_like["sample_type"] = sample_type
+        # Store a human-readable sample type label for each peak
+        full_ms_like["Sample type"] = sample_type
 
     # Save full calibrated results (CSV + PKL) for downstream GUI use
     save_calibrated_results(full_ms_like, sample_name, results_dir=results_dir)

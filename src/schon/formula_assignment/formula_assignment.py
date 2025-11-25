@@ -17,25 +17,24 @@ DEFAULT_FORMULAS_DIR.mkdir(parents=True, exist_ok=True)
 # Numeric defaults (can be overridden via init_formula_search)
 DEFAULT_PPM_TOLERANCE: float = 3.0
 ISOTOPE_DIFF: float = 1.0033548378
-DEFAULT_SAMPLE_TYPE: int = 0  # e.g. 0: crude_oil / generic, etc.
+DEFAULT_SAMPLE_TYPE: str = "generic_esi_neg"  # default preset key used in formula_presets
 
 # Globals initialised lazily so the module can be imported without heavy work
 formulas_data = None
 formula_tree: KDTree | None = None
 PPM_TOLERANCE: float = DEFAULT_PPM_TOLERANCE
-SAMPLE_TYPE: int = DEFAULT_SAMPLE_TYPE
+SAMPLE_TYPE: str = DEFAULT_SAMPLE_TYPE
 
 # ----------------- Formula search initialisation -----------------
-def init_formula_search(sample_type: int = DEFAULT_SAMPLE_TYPE,
+def init_formula_search(sample_type: str = DEFAULT_SAMPLE_TYPE,
                         ppm_tolerance: float = DEFAULT_PPM_TOLERANCE,
                         force_recompute: bool = False) -> None:
     """Initialise global formula table and KDTree for fast mass lookups.
 
     Parameters
     ----------
-    sample_type : int
-        Integer code passed to ``generate_formulas`` to control allowed
-        elements / bounds (maps to the GUI sample-type presets).
+    sample_type : str
+        String key passed to ``generate_formulas`` (e.g. "crude_oil", "generic_esi_neg").
     ppm_tolerance : float
         Default ppm tolerance used during formula matching.
     force_recompute : bool
@@ -153,7 +152,7 @@ def assign_formula(mz, intensity, isotopolog):
 # ----------------- In-memory DataFrame formula assignment -----------------
 def assign_formulas_df(
     df: pd.DataFrame,
-    sample_type: int = DEFAULT_SAMPLE_TYPE,
+    sample_type: str = DEFAULT_SAMPLE_TYPE,
     ppm_tolerance: float = DEFAULT_PPM_TOLERANCE,
     n_processes: int | None = None,
 ) -> pd.DataFrame:
@@ -176,8 +175,8 @@ def assign_formulas_df(
     ----------
     df : pandas.DataFrame
         Input peak table (must have at least ``m/z`` and ``Intensity``).
-    sample_type : int
-        Sample-type preset forwarded to :func:`generate_formulas` via
+    sample_type : str
+        Sample-type preset name (string) forwarded to :func:`generate_formulas` via
         :func:`init_formula_search`.
     ppm_tolerance : float
         Default ppm tolerance for mass matching in :func:`assign_formula`.
@@ -355,15 +354,11 @@ def assign_formulas_df(
     else:
         df["Is Isotopologue"] = False
 
-    # Reset index and create an explicit Index column
+    # Reset the pandas index, but preserve any existing "Index" column
     df = df.reset_index(drop=True)
-    # maintain existing Index if present (e.g. from calibration)
     if "Index" not in df.columns:
-        df = df.reset_index(drop=True)
-        df.insert(0, "Index", df.index)
-    else:
-        # reindex for safety but preserve the Index column
-        df = df.reset_index(drop=True)
+        # Create a stable Index column only if it does not exist yet
+        df.insert(0, "Index", np.arange(len(df)))
 
     # Reorder columns to a CoreMS-like layout
     desired_order = [
@@ -402,7 +397,7 @@ def assign_formulas_df(
 
 def assign_formulas(input_csv: str | Path,
                     output_csv: str | Path | None = None,
-                    sample_type: int = DEFAULT_SAMPLE_TYPE,
+                    sample_type: str = DEFAULT_SAMPLE_TYPE,
                     ppm_tolerance: float = DEFAULT_PPM_TOLERANCE,
                     n_processes: int | None = None) -> Path:
     """Assign molecular formulas to a single peak list CSV.
@@ -416,8 +411,8 @@ def assign_formulas(input_csv: str | Path,
         Where to save the annotated table. If ``None``, the file will be
         written into ``DEFAULT_FORMULAS_DIR`` with ``"_formulas"`` appended
         to the stem (and the ``"_peaks"`` suffix removed if present).
-    sample_type : int
-        Sample-type preset forwarded to :func:`generate_formulas` via
+    sample_type : str
+        Sample-type preset key (string) forwarded to :func:`generate_formulas` via
         :func:`init_formula_search`.
     ppm_tolerance : float
         Default ppm tolerance for mass matching in :func:`assign_formula`.

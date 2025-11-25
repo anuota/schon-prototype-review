@@ -43,7 +43,7 @@ def _ensure_index_column(df: pd.DataFrame) -> pd.DataFrame:
 @dataclass
 class SampleRunConfig:
     input_kind: InputKind = "d"
-    sample_type: Optional[int] = None
+    sample_type: Optional[str] = None
     calib_cfg: CalibrationConfig = field(default_factory=CalibrationConfig)
 
     formula_ppm_tolerance: Optional[float] = None
@@ -73,9 +73,15 @@ class SampleRunConfig:
     @classmethod
     def from_dict(cls, d: dict) -> "SampleRunConfig":
         calib_cfg = CalibrationConfig(**d["calib_cfg"])
+
+        # Ensure sample_type is always treated as a string (for presets & .lower())
+        sample_type = d.get("sample_type")
+        if sample_type is not None:
+            sample_type = str(sample_type)
+
         return cls(
             input_kind=d["input_kind"],
-            sample_type=d.get("sample_type"),
+            sample_type=sample_type,
             calib_cfg=calib_cfg,
             formula_ppm_tolerance=d.get("formula_ppm_tolerance"),
             formula_n_processes=d.get("formula_n_processes"),
@@ -91,7 +97,7 @@ class FormulaRun:
     """
     Record of a single formula-assignment run on (typically) calibrated peaks.
     """
-    sample_type: Optional[int]
+    sample_type: Optional[str]
     ppm_tolerance: Optional[float]
     n_processes: Optional[int]
     df: pd.DataFrame
@@ -264,29 +270,13 @@ class SampleRun:
 
     def assign_formulas_on_calibrated(
         self,
-        sample_type: Optional[int] = None,
+        sample_type: Optional[str] = None,
         ppm_tolerance: Optional[float] = None,
         n_processes: Optional[int] = None,
     ) -> pd.DataFrame:
         """
         Run formula assignment on the *calibrated* peaks and record this run.
-
-        Parameters
-        ----------
-        sample_type :
-            Optional override of the sample_type used for this formula run.
-            If None, fall back to cfg.sample_type.
-        ppm_tolerance :
-            Optional override of ppm tolerance for this formula run.
-            If None, fall back to cfg.formula_ppm_tolerance.
-        n_processes :
-            Optional override of n_processes; if None, fall back to
-            cfg.formula_n_processes.
-
-        Returns
-        -------
-        pd.DataFrame
-            A CoreMS-like DataFrame with formulas, isotopologs, etc.
+        Returns a DataFrame with canonical columns.
         """
         if self.calibrated_df is None:
             raise RuntimeError("No calibrated_df; call run_calibration() first.")
@@ -297,13 +287,16 @@ class SampleRun:
         eff_nproc = n_processes if n_processes is not None else self.cfg.formula_n_processes
 
         # Prepare a copy for formula assignment:
-        # - Keep original m/z in "m/z_raw"
-        # - Use "Calibrated m/z" as "m/z" for matching
         df_for_assignment = self.calibrated_df.copy()
+        # Keep original m/z in "m/z_raw" if not present
         if "m/z_raw" not in df_for_assignment.columns:
-            df_for_assignment["m/z_raw"] = df_for_assignment["m/z"]
-
-        df_for_assignment["m/z"] = df_for_assignment["Calibrated m/z"]
+            if "m/z" in df_for_assignment.columns:
+                df_for_assignment["m/z_raw"] = df_for_assignment["m/z"]
+            elif "m/z_raw" in df_for_assignment.columns:
+                pass
+        # Use "Calibrated m/z" as "m/z" for matching
+        if "Calibrated m/z" in df_for_assignment.columns:
+            df_for_assignment["m/z"] = df_for_assignment["Calibrated m/z"]
 
         # Ensure intensity column exists
         if "Intensity" not in df_for_assignment.columns and "Peak Height" in df_for_assignment.columns:
@@ -320,24 +313,142 @@ class SampleRun:
             n_processes=eff_nproc,
         )
 
-        # Record this formula run for later inspection / comparison
+        # --- Build canonical output directly from formulas_df ---
+
+        # Мы предполагаем, что assign_formulas_df возвращает тот же DataFrame,
+        # который мы ему передали (df_for_assignment), плюс новые колонки
+        # (Formula, Calculated Mass, Mass Error (ppm), C, H, ...).
+        formulas_df = _ensure_index_column(formulas_df)
+
+        # Строковое представление типа образца (чтобы совпадало с CLI-логикой)
+        sample_type_str = eff_sample_type if eff_sample_type is not None else ""
+
+        # Векторно посчитаем Calibration Error (ppm), если есть сырое m/z и калиброванное
+        if "Calibrated m/z" in formulas_df.columns and "m/z_raw" in formulas_df.columns:
+            mz_raw = formulas_df["m/z_raw"].astype(float)
+            mz_cal = formulas_df["Calibrated m/z"].astype(float)
+            with pd.option_context("mode.use_inf_as_na", True):
+                calib_err_ppm = (mz_cal - mz_raw) / mz_raw * 1e6
+        else:
+            calib_err_ppm = pd.Series([pd.NA] * len(formulas_df), index=formulas_df.index)
+
+        # Колонка "Used For Calibration" могла быть проставлена калибровкой.
+        if "Used For Calibration" in formulas_df.columns:
+            used_for_cal = formulas_df["Used For Calibration"].astype(bool)
+        else:
+            used_for_cal = pd.Series([False] * len(formulas_df), index=formulas_df.index)
+
+        # Собираем DataFrame в "CLI-совместимом" формате:
+        canonical_cols = [
+            "Index",
+            "Calibrated m/z",
+            "Intensity",
+            "S/N",
+            "Ion Charge",
+            "Formula",
+            "isotopolog",
+            "Calculated Mass",
+            "Mass Error (ppm)",
+            "C",
+            "H",
+            "N",
+            "O",
+            "S",
+            "*C",
+            "Na",
+            "Alternative Formula",
+            "Alternative Mass Error (ppm)",
+            "Sample type",
+            "m/z_raw",
+            "Calibration Error (ppm)",
+            "Used For Calibration",
+        ]
+
+        out = pd.DataFrame(index=formulas_df.index)
+
+        # Index
+        out["Index"] = formulas_df["Index"].astype("Int64")
+
+        # М/z калиброванный
+        out["Calibrated m/z"] = (
+            formulas_df["Calibrated m/z"] if "Calibrated m/z" in formulas_df.columns else pd.NA
+        )
+
+        # Интенсивность
+        if "Intensity" in formulas_df.columns:
+            out["Intensity"] = formulas_df["Intensity"]
+        elif "Peak Height" in formulas_df.columns:
+            out["Intensity"] = formulas_df["Peak Height"]
+        else:
+            out["Intensity"] = pd.NA
+
+        # S/N
+        out["S/N"] = formulas_df["S/N"] if "S/N" in formulas_df.columns else pd.NA
+
+        # Заряд
+        if "Ion Charge" in formulas_df.columns:
+            out["Ion Charge"] = formulas_df["Ion Charge"]
+        else:
+            out["Ion Charge"] = -1
+
+        # Формулы и атрибуты
+        for col in [
+            "Formula",
+            "isotopolog",
+            "Calculated Mass",
+            "Mass Error (ppm)",
+            "C",
+            "H",
+            "N",
+            "O",
+            "S",
+            "*C",
+            "Na",
+            "Alternative Formula",
+            "Alternative Mass Error (ppm)",
+        ]:
+            out[col] = formulas_df[col] if col in formulas_df.columns else pd.NA
+
+        # Тип образца
+        out["Sample type"] = sample_type_str
+
+        # Сырое m/z
+        if "m/z_raw" in formulas_df.columns:
+            out["m/z_raw"] = formulas_df["m/z_raw"]
+        else:
+            # на всякий случай можно использовать исходную колонку "m/z_cal" / "m/z"
+            if "m/z" in formulas_df.columns:
+                out["m/z_raw"] = formulas_df["m/z"]
+            else:
+                out["m/z_raw"] = pd.NA
+
+        # Ошибка калибровки
+        out["Calibration Error (ppm)"] = calib_err_ppm
+
+        # Использован ли пик для калибровки
+        out["Used For Calibration"] = used_for_cal
+
+        # Гарантируем порядок колонок
+        out = out[canonical_cols]
+
+        # Сохраняем run в память
         self.formula_runs.append(
             FormulaRun(
                 sample_type=eff_sample_type,
                 ppm_tolerance=eff_ppm,
                 n_processes=eff_nproc,
-                df=formulas_df,
+                df=out,
             )
         )
 
-        # Save to disk (side effect) in a CoreMS-like CSV
+        # Пишем на диск
         out_dir = self.cfg.calibration_results_dir
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{self.sample_name}_calibrated_with_formulas_sampletype_{eff_sample_type}.csv"
-        formulas_df.to_csv(out_path, index=False)
+        out_path = out_dir / f"{self.sample_name}_calibrated_with_formulas_sampletype_{sample_type_str}.csv"
+        out.to_csv(out_path, index=False)
         print(f"✓ Assigned formulas to calibrated peaks → {out_path}")
 
-        return formulas_df
+        return out
 
     # ------------------ Convenience ------------------
 

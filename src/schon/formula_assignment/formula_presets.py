@@ -1,5 +1,3 @@
-# SCHON/3_formula_assignment/formula_presets.py
-
 """Shared presets and constants for SCHON formula logic.
 
 This module is the single place where we define physical constants and
@@ -191,9 +189,37 @@ PRESETS = {
 }
 
 
-def get_preset(sample_type: str) -> FormulaPreset:
+def get_preset(sample_type) -> FormulaPreset:
+    """Return a FormulaPreset for the given sample_type.
+
+    Parameters
+    ----------
+    sample_type : str | int | None
+        - If str, accepts names like "CRUDE_OIL" or "crude_oil".
+        - If int, uses a legacy mapping (0..N) to named presets.
+        - If None or unknown, falls back to GENERIC_ESI_NEG.
     """
-    Return a FormulaPreset for the given sample_type.
-    Falls back to GENERIC_ESI_NEG if sample_type is unknown.
-    """
-    return PRESETS.get(sample_type, GENERIC_ESI_NEG)
+    # Handle None explicitly
+    if sample_type is None:
+        return GENERIC_ESI_NEG
+
+    # If a string is provided, normalize and look up directly
+    if isinstance(sample_type, str):
+        key = sample_type.lower()
+        return PRESETS.get(key, GENERIC_ESI_NEG)
+
+    # Backwards compatibility: integer codes
+    # You can adjust this mapping if you used different numeric codes before.
+    if isinstance(sample_type, int):
+        legacy_map = {
+            0: "generic_esi_neg",
+            1: "crude_oil",
+            2: "sedimentary_rock",
+            3: "coal",
+            4: "natural_water",
+        }
+        key = legacy_map.get(sample_type, "generic_esi_neg")
+        return PRESETS.get(key, GENERIC_ESI_NEG)
+
+    # Fallback for any other unexpected type
+    return GENERIC_ESI_NEG

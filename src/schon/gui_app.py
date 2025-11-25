@@ -25,7 +25,7 @@ except ImportError:
 
 # Defaults consistent with your Docker layout
 DEFAULT_DATA_ROOT = Path("/app/data")
-DEFAULT_D_SUBFOLDER = DEFAULT_DATA_ROOT / "Measurement_d-files" / "noncalibrated_d-files"
+DEFAULT_D_SUBFOLDER = DEFAULT_DATA_ROOT / "Measurement_d-files" / "noncalibrated_d-files" / "ESI_neg_G017736-0_100_200sc_000001.d"
 DEFAULT_RESULTS_DIR = Path("/app/results")
 DEFAULT_PEAKS_OUTPUT_DIR = DEFAULT_RESULTS_DIR / "csv_raw"
 DEFAULT_CALIB_OUTPUT_DIR = DEFAULT_RESULTS_DIR / "calibration"
@@ -181,7 +181,8 @@ def main() -> None:
                 "NATURAL_WATER",
                 "GENERIC_ESI_NEG",
             ]
-            default_sample_idx = 4  # GENERIC_ESI_NEG
+            # default to GENERIC_ESI_NEG
+            default_sample_idx = sample_type_options.index("GENERIC_ESI_NEG")
         elif ion_mode == "ESI-POS":
             # Placeholder; will hook to formula_presets_esi_pos later
             sample_type_options = ["GENERIC_ESI_POS"]
@@ -329,7 +330,7 @@ def main() -> None:
             formula_ppm_tolerance = st.number_input(
                 "Formula search tolerance (ppm)",
                 min_value=0.1,
-                value=3.0,
+                value=1.0,
                 step=0.1,
                 help="Default ppm window for formula matching.",
             )
@@ -368,7 +369,7 @@ def main() -> None:
         try:
             run_cfg = SampleRunConfig(
                 input_kind=input_kind,
-                sample_type=sample_type_code,  # numeric index derived from label
+                sample_type=sample_type_label,  # numeric index derived from label
                 calib_cfg=calib_cfg,
                 formula_ppm_tolerance=formula_ppm_tolerance,
                 formula_n_processes=int(formula_n_proc),
@@ -384,7 +385,7 @@ def main() -> None:
             # Backwards compatibility if SampleRunConfig doesn't yet accept the new fields
             run_cfg = SampleRunConfig(
                 input_kind=input_kind,
-                sample_type=sample_type_code,
+                sample_type=sample_type_label,
                 calib_cfg=calib_cfg,
                 formula_ppm_tolerance=formula_ppm_tolerance,
                 formula_n_processes=int(formula_n_proc),
@@ -394,40 +395,69 @@ def main() -> None:
                 save_raw_peaks_csv=True,
             )
 
-        sample_name = input_path.stem.rstrip("/")
-        st.write(f"### Running sample: `{sample_name}`")
+        # Determine which paths to process (support bulk .d folders)
+        if input_kind == "d" and input_path.is_dir():
+            if input_path.suffix == ".d":
+                # Single .d folder
+                paths_to_process = [input_path]
+            else:
+                # Directory containing multiple .d folders
+                paths_to_process = sorted(
+                    p for p in input_path.iterdir() if p.is_dir() and p.suffix == ".d"
+                )
+                if not paths_to_process:
+                    st.error("No .d folders found inside the selected directory.")
+                    return
+        else:
+            # CSV and other cases: treat the input as a single item
+            paths_to_process = [input_path]
 
-        # Run the pipeline using SampleRun
-        try:
-            run = SampleRun(
-                sample_name=sample_name,
-                input_path=input_path,
-                cfg=run_cfg,
-            )
+        last_run: Optional[SampleRun] = None
 
-            with st.status("Loading input and extracting peaks...", expanded=True) as status:
-                run.load_input()
-                if run.raw_peaks_df is not None:
-                    st.write(f"Raw peaks: {run.raw_peaks_df.shape[0]} rows")
-                elif run.calibrated_input:
-                    st.write("Input is already calibrated; using it directly.")
-                status.update(label="Input loaded", state="complete")
+        # Process each path
+        for this_path in paths_to_process:
+            sample_name = this_path.name.rstrip("/")
+            st.write(f"### Running sample: `{sample_name}`")
 
-            with st.status("Running calibration...", expanded=False) as status:
-                run.run_calibration()
-                status.update(label="Calibration finished", state="complete")
+            try:
+                run = SampleRun(
+                    sample_name=sample_name,
+                    input_path=this_path,
+                    cfg=run_cfg,
+                )
 
-            with st.status("Assigning formulas on calibrated peaks...", expanded=False) as status:
-                formulas_df = run.assign_formulas_on_calibrated()
-                status.update(label="Formula assignment finished", state="complete")
+                with st.status("Loading input and extracting peaks...", expanded=True) as status:
+                    run.load_input()
+                    if run.raw_peaks_df is not None:
+                        st.write(f"Raw peaks: {run.raw_peaks_df.shape[0]} rows")
+                    elif run.calibrated_input:
+                        st.write("Input is already calibrated; using it directly.")
+                    status.update(label="Input loaded", state="complete")
 
-            # Save metadata for this run (so GUI can list it later)
-            meta_path = run.save_metadata()
-            st.success(f"Run metadata saved to: {meta_path}")
+                with st.status("Running calibration...", expanded=False) as status:
+                    run.run_calibration()
+                    status.update(label="Calibration finished", state="complete")
 
-        except Exception as e:
-            st.exception(e)
+                with st.status("Assigning formulas on calibrated peaks...", expanded=False) as status:
+                    _ = run.assign_formulas_on_calibrated()
+                    status.update(label="Formula assignment finished", state="complete")
+
+                # Save metadata for this run (so GUI can list it later)
+                meta_path = run.save_metadata()
+                st.success(f"Run metadata saved to: {meta_path}")
+
+                # Remember the last successful run for plotting & summary
+                last_run = run
+
+            except Exception as e:
+                st.error(f"Error while processing {this_path}:")
+                st.exception(e)
+
+        # If we processed at least one run, use the last one for the spectrum and summary
+        if last_run is None:
             return
+
+        run = last_run
 
         # ------------------ Left: spectrum window ------------------
         with col_plot:
@@ -435,22 +465,44 @@ def main() -> None:
 
             current_df = run.current_df  # latest (with formulas if any)
 
-            # Optional zoom controls
-            mz_min = float(current_df["Calibrated m/z"].min()) if "Calibrated m/z" in current_df.columns else float(current_df["m/z"].min())
-            mz_max = float(current_df["Calibrated m/z"].max()) if "Calibrated m/z" in current_df.columns else float(current_df["m/z"].max())
+            # Guard against missing or empty data
+            if current_df is None or current_df.empty:
+                st.warning("No data available to plot yet.")
+                return
 
-            mz_range = st.slider(
-                "m/z range",
-                min_value=float(mz_min),
-                max_value=float(mz_max),
-                value=(float(mz_min), float(mz_max)),
-            )
+            # Decide which m/z column to use
+            if "Calibrated m/z" in current_df.columns:
+                mz_col = "Calibrated m/z"
+            elif "m/z" in current_df.columns:
+                mz_col = "m/z"
+            else:
+                st.warning("No m/z column found in current table.")
+                return
 
-            # Filter by selected m/z range
-            mz_col = "Calibrated m/z" if "Calibrated m/z" in current_df.columns else "m/z"
-            df_zoom = current_df[
-                (current_df[mz_col] >= mz_range[0]) & (current_df[mz_col] <= mz_range[1])
-            ]
+            # Drop NaNs before computing slider bounds
+            mz_series = pd.to_numeric(current_df[mz_col], errors="coerce").dropna()
+            if mz_series.empty:
+                st.warning("All m/z values are NaN or invalid; cannot plot spectrum.")
+                return
+
+            mz_min = float(mz_series.min())
+            mz_max = float(mz_series.max())
+
+            # If range collapsed, just plot without slider
+            if mz_min >= mz_max:
+                df_zoom = current_df.copy()
+            else:
+                mz_range = st.slider(
+                    "m/z range",
+                    min_value=float(mz_min),
+                    max_value=float(mz_max),
+                    value=(float(mz_min), float(mz_max)),
+                )
+
+                # Filter by selected m/z range
+                df_zoom = current_df[
+                    (current_df[mz_col] >= mz_range[0]) & (current_df[mz_col] <= mz_range[1])
+                ]
 
             fig = _spectrum_plot(df_zoom, mz_col=mz_col)
             st.pyplot(fig, clear_figure=True)
