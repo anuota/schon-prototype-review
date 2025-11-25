@@ -100,12 +100,17 @@ def assign_formulas_to_calibrated(
         n_processes=None,
     )
 
+    # Add "Used For Calibration" column if present in calibrated_df
+    if "Used For Calibration" in calibrated_df.columns:
+        calibrated_formulas_df["Used For Calibration"] = calibrated_df["Used For Calibration"]
+
     # Reduce to final desired columns
     desired_cols = [
         "Index", "Calibrated m/z", "Intensity", "S/N", "Ion Charge",
         "Formula", "isotopolog", "Calculated Mass", "Mass Error (ppm)",
         "C", "H", "N", "O", "S", "*C", "Na",
         "Alternative Formula", "Alternative Mass Error (ppm)",
+        "Used For Calibration",
         "Sample type", "m/z_raw", "Calibration Error (ppm)"
     ]
     # Keep only existing columns

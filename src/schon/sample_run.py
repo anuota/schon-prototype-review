@@ -52,6 +52,7 @@ class SampleRunConfig:
     data_root: Path = Path("/app/data")
     peaks_output_dir: Path = Path("/app/results/csv_raw")
     calibration_results_dir: Path = Path("/app/results/calibration")
+    runs_dir: Path = Path("/app/results/runs")
 
     save_raw_peaks_csv: bool = True
 
@@ -149,7 +150,7 @@ class SampleRun:
 
     # Where to store metadata for this run (defaults into calibration_results_dir/runs/)
     def _runs_root(self) -> Path:
-        return self.cfg.calibration_results_dir / "runs" / self.sample_name / self.run_id
+        return self.cfg.runs_dir / self.sample_name / self.run_id
 
     def to_metadata_dict(self) -> dict:
         """Minimal JSON-serializable snapshot of this run."""
@@ -166,11 +167,51 @@ class SampleRun:
     def save_metadata(self) -> Path:
         root = self._runs_root()
         root.mkdir(parents=True, exist_ok=True)
+        meta = self.to_metadata_dict()
+
+        # 1) Save per-run config
         meta_path = root / "run_config.json"
         with meta_path.open("w", encoding="utf-8") as f:
-            json.dump(self.to_metadata_dict(), f, indent=2)
-        return meta_path
+            json.dump(meta, f, indent=2)
 
+        # 2) Update global index of all runs
+        index_path = self.cfg.runs_dir / "runs_index.json"
+
+        try:
+            if index_path.exists():
+                with index_path.open("r", encoding="utf-8") as f:
+                    index_data = json.load(f)
+                # keep it as a list of entries
+                if not isinstance(index_data, list):
+                    index_data = []
+            else:
+                index_data = []
+        except Exception:
+            # if something is wrong, start a new index
+            index_data = []
+
+        # Minimal summary entry for this run
+        summary = {
+            "sample_name": self.sample_name,
+            "run_id": self.run_id,
+            "created_at": self.created_at,
+            "sample_type": self.cfg.sample_type,
+            "input_path": str(self.input_path),
+            "calibrated_input": self.calibrated_input,
+            # optional: where main outputs are
+            "outputs": {
+                "calibration_dir": str(self.cfg.calibration_results_dir),
+                # you can add more paths here later if you want
+            },
+        }
+
+        index_data.append(summary)
+
+        with index_path.open("w", encoding="utf-8") as f:
+            json.dump(index_data, f, indent=2)
+
+        return meta_path
+        
     @classmethod
     def from_metadata(cls, meta_path: Path) -> "SampleRun":
         with meta_path.open("r", encoding="utf-8") as f:
@@ -340,28 +381,12 @@ class SampleRun:
 
         # Собираем DataFrame в "CLI-совместимом" формате:
         canonical_cols = [
-            "Index",
-            "Calibrated m/z",
-            "Intensity",
-            "S/N",
-            "Ion Charge",
-            "Formula",
-            "isotopolog",
-            "Calculated Mass",
-            "Mass Error (ppm)",
-            "C",
-            "H",
-            "N",
-            "O",
-            "S",
-            "*C",
-            "Na",
-            "Alternative Formula",
-            "Alternative Mass Error (ppm)",
-            "Sample type",
-            "m/z_raw",
-            "Calibration Error (ppm)",
+            "Index", "Calibrated m/z", "Intensity", "S/N", "Ion Charge",
+            "Formula", "isotopolog", "Calculated Mass", "Mass Error (ppm)",
+            "C", "H", "N", "O", "S", "*C", "Na",
+            "Alternative Formula", "Alternative Mass Error (ppm)",
             "Used For Calibration",
+            "Sample type", "m/z_raw", "Calibration Error (ppm)"
         ]
 
         out = pd.DataFrame(index=formulas_df.index)
@@ -442,7 +467,7 @@ class SampleRun:
         )
 
         # Пишем на диск
-        out_dir = self.cfg.calibration_results_dir
+        out_dir = self.cfg.runs_dir / self.sample_name / self.run_id
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{self.sample_name}_calibrated_with_formulas_sampletype_{sample_type_str}.csv"
         out.to_csv(out_path, index=False)
