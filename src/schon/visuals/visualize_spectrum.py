@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 import matplotlib.pyplot as plt
 
-from .read_bruker_fid_corems import load_mass_spectrum_from_d_folder
+from schon.read_bruker_fid_corems import load_mass_spectrum_from_d_folder
 
 
 def plot_spectrum_from_d(d_folder: str, out_png: str | None = None):
