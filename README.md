@@ -93,15 +93,17 @@ A graphical interface for:
 
 ```bash
 docker build -t fticr-corems .
+```
 
 ### Run with GUI on localhost:8501
 
+```bash
 docker run --rm -p 8501:8501 \
   -v /Users/anya/Coding/SCHON:/app \
   fticr-corems
-
+```
 ### 📁 Output Structure
-
+```
 /app/results/
     runs/
         <sample_name>/
@@ -113,19 +115,20 @@ docker run --rm -p 8501:8501 \
                     calibrants.png
                     raw_vs_calibrated.png
                     assigned_formulas.png
-
+```
 ## 📦 Installation (development mode)
 Clone:
+```
 git clone https://github.com/<your_name>/SCHON.git
 cd SCHON
-
+```
 Run locally (no Docker):
-
+```
 pip install -r requirements.txt
 streamlit run src/schon/gui_app.py
-
+```
 ### 🧩 Code Structure
-
+```
 src/schon/
     gui_app.py               # Streamlit GUI
     main.py                  # CLI pipeline
@@ -141,7 +144,7 @@ src/schon/
         plot.py
     corems_pipeline/
         generate_peaks_from_fid.py
-
+```
 ## 📝 License
 
     SCHON uses:
