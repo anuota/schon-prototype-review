@@ -51,3 +51,119 @@ SCHON is designed for petroleomics, environmental samples, organic geochemistry,
 
 ### 🔹 Plotting  
 All plots are generated via Plotly and saved to:
+
+/app/results/runs/<sample_name>/<run_id>/plots/
+
+ Included views:
+
+- Spectrum with **calibrants** (red points + formula labels)  
+- **Raw vs calibrated** m/z comparison  
+- Spectrum with **formula-assigned peaks** (orange markers)  
+- Interactive zooming and box-zoom selection  
+
+### 🔹 Reproducible Run Management  
+- Each run gets a **unique `run_id`**  
+- Stored under:
+
+/app/results/runs/<sample_name>/<run_id>/
+
+- Includes:
+  - Final CSV table  
+  - run_config.json  
+  - Calibration debug info  
+  - Plots  
+- `runs_index.json` tracks all runs per sample.
+
+### 🔹 Streamlit GUI  
+A graphical interface for:
+
+- Selecting `.d` folders or CSV  
+- Editing calibration parameters  
+- Choosing ion mode and sample type  
+- Adjusting formula element limits  
+- Viewing interactive plots  
+- Browsing run history  
+- Previewing output tables  
+
+---
+
+## 🐳 Running SCHON in Docker
+
+### Build (if modifying locally)
+
+```bash
+docker build -t fticr-corems .
+
+### Run with GUI on localhost:8501
+
+docker run --rm -p 8501:8501 \
+  -v /Users/anya/Coding/SCHON:/app \
+  fticr-corems
+
+### 📁 Output Structure
+
+/app/results/
+    runs/
+        <sample_name>/
+            runs_index.json        # List of all runs
+            <run_id>/
+                run_config.json
+                <sample>_calibrated_with_formulas.csv
+                plots/
+                    calibrants.png
+                    raw_vs_calibrated.png
+                    assigned_formulas.png
+
+## 📦 Installation (development mode)
+Clone:
+git clone https://github.com/<your_name>/SCHON.git
+cd SCHON
+
+Run locally (no Docker):
+
+pip install -r requirements.txt
+streamlit run src/schon/gui_app.py
+
+### 🧩 Code Structure
+
+src/schon/
+    gui_app.py               # Streamlit GUI
+    main.py                  # CLI pipeline
+    sample_run.py            # Orchestrates each run
+    calibration/
+        calibration.py
+        calibration_config.py
+    formula_assignment/
+        formula_assignment.py
+        formula_filters.py
+        formula_presets.py
+    plotting/
+        plot.py
+    corems_pipeline/
+        generate_peaks_from_fid.py
+
+## 📝 License
+
+    SCHON uses:
+        •	EUPL
+        •	Streamlit (Apache 2.0)
+
+    Streamlit Cloud hosting has restrictions (no sensitive personal data),
+    but local Streamlit usage inside Docker has no restrictions.
+
+## 🤝 Contributing
+
+Pull requests and issues are welcome!
+Areas open for contribution:
+	•	ESI-POS and APPI presets
+	•	Additional calibrant strategies
+	•	Peak deconvolution
+	•	Export formats (HDF5, Parquet, JSON-LD)
+	•	Improved GUI plotting and QC workflows
+
+⸻
+
+## 📬 Contact
+
+If you use SCHON for research, we’d love to hear from you.
+Open an issue or reach out directly.
