@@ -21,7 +21,8 @@ RUN pip install --no-cache-dir \
     "psycopg2-binary==2.9.10" \
     "matplotlib==3.7.5" \
     "pandas==1.5.3" \
-    "streamlit==1.51.0"
+    "streamlit==1.51.0" \
+    "plotly"
 
 
 

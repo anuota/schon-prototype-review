@@ -530,15 +530,22 @@ def main() -> None:
         plots_dir = Path("/app/results/runs") / run.sample_name / "plots"
         plots_dir.mkdir(parents=True, exist_ok=True)
         
-        # Delegate actual plotting to the plotting module
+        # Delegate actual plotting to the plotting module (Plotly figures)
         if view_type == "Calibrants":
-            fig = plot_spectrum_with_calibrants(df_zoom, output_path=plots_dir / "calibrants.png")
+            fig = plot_spectrum_with_calibrants(
+                df_zoom, output_path=plots_dir / "calibrants.png"
+            )
         elif view_type == "Raw vs calibrated":
-            fig = plot_raw_vs_calibrated(df_zoom, output_path=plots_dir / "raw_vs_calibrated.png")
+            fig = plot_raw_vs_calibrated(
+                df_zoom, output_path=plots_dir / "raw_vs_calibrated.png"
+            )
         else:  # "Assigned formulas"
-            fig = plot_spectrum_with_assigned_formulas(df_zoom, output_path=plots_dir / "assigned_formulas.png")
+            fig = plot_spectrum_with_assigned_formulas(
+                df_zoom, output_path=plots_dir / "assigned_formulas.png"
+            )
 
-        st.pyplot(fig, clear_figure=True)
+        # Use Plotly's interactive chart (supports box zoom and vertical zoom)
+        st.plotly_chart(fig, width="stretch")
 
     # ================= Output table preview (full width) =================
     st.markdown("---")
@@ -546,7 +553,7 @@ def main() -> None:
     try:
         st.dataframe(current_df.head(500), width='stretch')
     except Exception:
-        st.dataframe(current_df, use_container_width=True)
+        st.dataframe(current_df, width="stretch")
 
 
 if __name__ == "__main__":
