@@ -10,12 +10,14 @@ It supports both:
 
 - **Bruker `.d` folders** (native, no zipping required)
 - **CSV peak lists** (uncalibrated or pre-calibrated)
+- support for **Thermo .raw** files from Orbitrap  to be included soon 
 
 The pipeline performs:
 
 1. **Peak extraction** from Bruker FID / Apex `.d` folders  
 2. **Internal calibration** with homologous-series recognition  
-3. **Molecular formula assignment** using customizable presets  
+3. **Fast Molecular formula assignment** using customizable presets  
+4. **Probabilistic Molecular formula assignment using KMD series** is to be included soon 
 4. **Plotting** (calibrants, raw vs calibrated, assigned formulas)  
 5. **Reproducible run tracking** with per-sample run history  
 6. **Interactive GUI (Streamlit)**
@@ -31,7 +33,7 @@ SCHON is designed for petroleomics, environmental samples, organic geochemistry,
 - Optional CSV input  
 
 ### 🔹 Internal Calibration  
-- Supports CHO-restricted or full calibrant selection  
+- Supports CHO (or CHON)-restricted or full calibrant selection  
 - Homologue series detection  
 - Polynomial calibration (orders 1–3)  
 - Per-peak calibration error (ppm)  
@@ -39,7 +41,11 @@ SCHON is designed for petroleomics, environmental samples, organic geochemistry,
 
 ### 🔹 Molecular Formula Assignment  
 - Fully in-memory, fast assignment engine  
-- Adjustable ppm tolerance  
+- Adjustable ppm tolerance 
+- Intrument mode specific presets:
+    - ESI-NEG
+    - ESI-POS (to be included)
+    - APPI (to be included)
 - Sample-specific presets:  
   - CRUDE_OIL  
   - SEDIMENTARY_ROCK  
@@ -47,12 +53,12 @@ SCHON is designed for petroleomics, environmental samples, organic geochemistry,
   - NATURAL_WATER  
   - GENERIC_ESI_NEG  
 - Editable elemental limits in GUI  
-- Future-ready support for ESI-POS and APPI
 
 ### 🔹 Plotting  
 All plots are generated via Plotly and saved to:
-
+```
 /app/results/runs/<sample_name>/<run_id>/plots/
+```
 
  Included views:
 
@@ -64,9 +70,9 @@ All plots are generated via Plotly and saved to:
 ### 🔹 Reproducible Run Management  
 - Each run gets a **unique `run_id`**  
 - Stored under:
-
+```
 /app/results/runs/<sample_name>/<run_id>/
-
+```
 - Includes:
   - Final CSV table  
   - run_config.json  
