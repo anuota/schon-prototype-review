@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: EUPL-1.2
 from pathlib import Path
 import pandas as pd
 from corems.transient.input import brukerSolarix as bruker_module

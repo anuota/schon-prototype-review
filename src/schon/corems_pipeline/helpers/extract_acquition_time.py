@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: EUPL-1.2
 import os
 from pathlib import Path
 from xml.dom import minidom

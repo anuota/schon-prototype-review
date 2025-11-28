@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: EUPL-1.2
 """Shared presets and constants for SCHON formula logic.
 
 This module is the single place where we define physical constants and

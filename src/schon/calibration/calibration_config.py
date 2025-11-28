@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: EUPL-1.2
 """
 Calibration configuration for the SCHON FT-ICR-MS pipeline.
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: EUPL-1.2
 from corems.transient.input.brukerSolarix import ReadBrukerSolarix
 from matplotlib import pyplot
 from pathlib import Path

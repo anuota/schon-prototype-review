@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: EUPL-1.2
 import os
 import pandas as pd
 import numpy as np

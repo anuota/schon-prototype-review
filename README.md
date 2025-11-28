@@ -154,11 +154,12 @@ src/schon/
 ## 📝 License
 
     SCHON uses:
-        •	EUPL
+        •	This project is licensed under the European Union Public License v1.2 (EUPL-1.2).
         •	Streamlit (Apache 2.0)
 
     Streamlit Cloud hosting has restrictions (no sensitive personal data),
     but local Streamlit usage inside Docker has no restrictions.
+
 
 ## 🤝 Contributing
 
@@ -176,3 +177,6 @@ Areas open for contribution:
 
 If you use SCHON for research, we’d love to hear from you.
 Open an issue or reach out directly.
+
+Copyright (c) 2025 <Anna Makushkina>
+Licensed under the EUPL v1.2

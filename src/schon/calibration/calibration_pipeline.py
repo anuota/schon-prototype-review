@@ -1,4 +1,4 @@
-
+# SPDX-License-Identifier: EUPL-1.2
 """Calibration pipeline for FT-ICR-MS data using SCHON formula logic.
 
 This module is intended to run *after* the CoreMS pipeline has exported

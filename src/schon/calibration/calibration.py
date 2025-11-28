@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: EUPL-1.2
 """
 Calibration pipeline for FT-ICR-MS peaks using internally assigned formulas.
 

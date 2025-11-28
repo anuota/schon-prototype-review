@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: EUPL-1.2
 """
 Compare the contents of two Bruker .d folders (recursively).
 
