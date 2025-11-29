@@ -168,7 +168,7 @@ Areas open for contribution:
 	•	ESI-POS and APPI presets
 	•	Additional calibrant strategies
 	•	Peak deconvolution
-	•	Export formats (HDF5, Parquet, JSON-LD)
+	•	Export formats (HDF5)
 	•	Improved GUI plotting and QC workflows
 
 ⸻
